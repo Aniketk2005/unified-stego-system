@@ -32,14 +32,14 @@ def run_encode_task(job_id, form_data, temp_cover_path, temp_secret_path=None):
     """
     try:
         jobs[job_id] = {'status': 'processing', 'progress': 10}
-        
+
         input_type = form_data.get('inputType')
         password = form_data.get('password')
 
         # Generate descriptive output filename
         base_name = os.path.splitext(os.path.basename(temp_cover_path).split('_', 1)[1])[0]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
         if input_type == 'text':
             secret_text = form_data.get('text')
             output_filename = f"{base_name}_lsb_text_{timestamp}.png"
@@ -51,7 +51,8 @@ def run_encode_task(job_id, form_data, temp_cover_path, temp_secret_path=None):
             output_path = os.path.join(ENCODED_DIR, output_filename)
             # The function expects a file-like object, so we open the temp path
             with open(temp_secret_path, 'rb') as secret_file:
-                encode_image_in_image(secret_file, temp_cover_path, output_path, password)
+                secret_bytes = secret_file.read()
+                encode_image_in_image(secret_bytes, temp_cover_path, output_path, password)
         else:
             raise ValueError("Invalid input type or missing secret image path.")
 
@@ -102,14 +103,14 @@ def encode():
         secret_image = request.files['secretImage']
         temp_secret_path = os.path.join(TEMP_UPLOAD_DIR, f"{job_id}_secret_{secure_filename(secret_image.filename)}")
         secret_image.save(temp_secret_path)
-    
+
     # 3. Start the background thread, passing the file paths
     thread = threading.Thread(
         target=run_encode_task,
         args=(job_id, request.form, temp_cover_path, temp_secret_path)
     )
     thread.start()
-    
+
     # 4. Immediately return the job ID to the frontend
     jobs[job_id] = {'status': 'processing', 'progress': 0}
     return jsonify({'success': True, 'job_id': job_id})
@@ -117,8 +118,7 @@ def encode():
 @app.route('/decode', methods=['POST'])
 def decode():
     if 'image' not in request.files: return jsonify({'success': False, 'message': 'No image provided.'}), 400
-    decode_type = request.form.get('decodeType')
-    if not decode_type: return jsonify({'success': False, 'message': 'Decode type must be specified.'}), 400
+    decode_type = request.form.get('decodeType')  # 'text' | 'image' | 'auto' (optional)
 
     image_file = request.files['image']
     password = request.form.get('password')
@@ -127,17 +127,36 @@ def decode():
     image_file.save(temp_image_path)
 
     try:
+        # Explicit modes preserved for backward compatibility
         if decode_type == 'text':
             decoded_text = decode_image_to_text(temp_image_path, password)
             return jsonify({'success': True, 'message': 'Text decoded successfully!', 'decoded_type': 'text', 'decoded_content': decoded_text})
-        elif decode_type == 'image':
+        if decode_type == 'image':
             output_filename = f"decoded_{uuid.uuid4()}.png"
             output_path = os.path.join(DECODED_DIR, output_filename)
             decode_image_from_image(temp_image_path, output_path, password)
             return jsonify({'success': True, 'message': 'Image decoded successfully!', 'decoded_type': 'image', 'decoded_content_url': f'http://localhost:5000/decoded_output/{output_filename}'})
-        else:
-            return jsonify({'success': False, 'message': 'Invalid decode type specified.'}), 400
-            
+
+        # Auto-detect mode: try text then image
+        # 1) Try LSB text decode
+        try:
+            decoded_text = decode_image_to_text(temp_image_path, password)
+            return jsonify({'success': True, 'message': 'Text decoded successfully!', 'decoded_type': 'text', 'decoded_content': decoded_text})
+        except Exception as text_err:
+            text_error_message = str(text_err)
+
+        # 2) Try DCT image decode
+        try:
+            output_filename = f"decoded_{uuid.uuid4()}.png"
+            output_path = os.path.join(DECODED_DIR, output_filename)
+            decode_image_from_image(temp_image_path, output_path, password)
+            return jsonify({'success': True, 'message': 'Image decoded successfully!', 'decoded_type': 'image', 'decoded_content_url': f'http://localhost:5000/decoded_output/{output_filename}'})
+        except Exception as image_err:
+            image_error_message = str(image_err)
+
+        # If both attempts failed, return combined error for easier debugging
+        return jsonify({'success': False, 'message': 'Auto-decode failed for both text and image.', 'errors': {'text': text_error_message, 'image': image_error_message}}), 400
+
     except Exception as e:
         return jsonify({'success': False, 'message': f'Decoding failed: {str(e)}'}), 500
     finally:
@@ -159,4 +178,3 @@ def serve_decoded_output(filename):
 
 if __name__ == "__main__":
     app.run(debug=True)
-
