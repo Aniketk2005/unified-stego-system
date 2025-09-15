@@ -1,96 +1,91 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from 'react';
+
+// Reusable component for styled sections
+const Section = ({ title, children }) => (
+  <div style={{ padding: "1.5rem", border: "1px solid #ddd", borderRadius: "8px", boxShadow: "0 2px 5px rgba(0,0,0,0.05)", backgroundColor: "#fff" }}>
+    <h2 style={{ marginBottom: "1.5rem", textAlign: "center", color: "#333", borderBottom: "2px solid #007bff", paddingBottom: "0.5rem" }}>{title}</h2>
+    {children}
+  </div>
+);
 
 function Encode() {
-  // All your state variables remain the same
-  const [inputType, setInputType] = useState("text");
-  const [text, setText] = useState("");
-  const [imageFile, setImageFile] = useState(null);
-  const [coverImageFile, setCoverImageFile] = useState(null);
-  const [outputMedia, setOutputMedia] = useState("image");
-  const [medium, setMedium] = useState("WhatsApp");
-  const [confidentiality, setConfidentiality] = useState("casual");
-  const [allowAI, setAllowAI] = useState(false); // Defaulting AI to off for simplicity
-  const [manualEncoding, setManualEncoding] = useState("lsb_image");
-  const [response, setResponse] = useState("");
+  // Encoding States
+  const [inputType, setInputType] = useState('text'); // 'text' or 'image'
+  const [text, setText] = useState('');
+  const [secretImage, setSecretImage] = useState(null);
+  const [coverImage, setCoverImage] = useState(null);
+  const [encodePassword, setEncodePassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [encodedImage, setEncodedImage] = useState(null);
   const [encodeProgress, setEncodeProgress] = useState(0);
-  const [encodePassword, setEncodePassword] = useState("");
+  const [response, setResponse] = useState('');
+  const [encodedImage, setEncodedImage] = useState(null);
+
+  // Decoding States
+  const [decodeType, setDecodeType] = useState('text'); // 'text' or 'image'
   const [decodeImageFile, setDecodeImageFile] = useState(null);
-  const [decodedMessage, setDecodedMessage] = useState("");
-  const [decodedImageUrl, setDecodedImageUrl] = useState(null);
+  const [decodePassword, setDecodePassword] = useState('');
   const [decodingLoading, setDecodingLoading] = useState(false);
-  const [decodeResponse, setDecodeResponse] = useState("");
-  const [decodePassword, setDecodePassword] = useState("");
+  const [decodeResponse, setDecodeResponse] = useState('');
+  const [decodedMessage, setDecodedMessage] = useState('');
+  const [decodedImageUrl, setDecodedImageUrl] = useState(null);
 
-  // This polling interval will be used to check the status
-  let pollingInterval;
-
-  const pollJobStatus = async (jobId) => {
-    pollingInterval = setInterval(async () => {
+  // --- API HANDLERS ---
+  const pollJobStatus = (jobId) => {
+    const interval = setInterval(async () => {
       try {
         const res = await fetch(`http://localhost:5000/status/${jobId}`);
         const data = await res.json();
-
         if (data.status === 'processing') {
           setEncodeProgress(data.progress);
-          setResponse("Encoding in progress...");
         } else if (data.status === 'complete') {
-          clearInterval(pollingInterval);
+          clearInterval(interval);
           setLoading(false);
-          setResponse("Encoding successful!");
+          setResponse('Encoding successful!');
           setEncodeProgress(100);
-          // THIS IS THE KEY: Set the image URL to display it
           setEncodedImage(data.encoded_image_url);
         } else if (data.status === 'error') {
-          clearInterval(pollingInterval);
+          clearInterval(interval);
           setLoading(false);
           setResponse(`Error: ${data.message}`);
-          setEncodeProgress(0);
         }
       } catch (err) {
-        clearInterval(pollingInterval);
+        clearInterval(interval);
         setLoading(false);
-        setResponse("Error: Could not poll job status.");
-        console.error("Polling error:", err);
+        setResponse('Error: Could not poll job status.');
       }
-    }, 2000); // Check every 2 seconds
+    }, 2000);
   };
 
   const handleEncode = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setResponse("Uploading files...");
+    setResponse('Starting encoding process...');
     setEncodedImage(null);
-    setDecodedMessage("");
     setEncodeProgress(0);
 
-    let formData = new FormData();
-    formData.append("text", text);
-    formData.append("coverImage", coverImageFile);
-    if (encodePassword) {
-      formData.append("password", encodePassword);
+    const formData = new FormData();
+    formData.append('inputType', inputType);
+    formData.append('coverImage', coverImage);
+    if (encodePassword) formData.append('password', encodePassword);
+
+    if (inputType === 'text') {
+      formData.append('text', text);
+    } else {
+      formData.append('secretImage', secretImage);
     }
 
     try {
-      // Step 1: Send the request to /encode
-      const res = await fetch("http://localhost:5000/encode", {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch('http://localhost:5000/encode', { method: 'POST', body: formData });
       const data = await res.json();
-
       if (res.ok && data.job_id) {
-        // Step 2: If we get a job_id, start polling for the status
-        setResponse("Processing... Please wait.");
+        setResponse('Processing... Please wait.');
         pollJobStatus(data.job_id);
       } else {
-        setResponse(`Error: ${data.message || 'Failed to start encoding job.'}`);
+        setResponse(`Error: ${data.message || 'Failed to start encoding.'}`);
         setLoading(false);
       }
     } catch (err) {
-      console.error("Error during encode submission:", err);
-      setResponse("Error connecting to server to start encoding.");
+      setResponse('Error: Could not connect to the server.');
       setLoading(false);
     }
   };
@@ -98,160 +93,91 @@ function Encode() {
   const handleDecode = async (e) => {
     e.preventDefault();
     setDecodingLoading(true);
-    setDecodedMessage("");
+    setDecodeResponse('Decoding in progress...');
+    setDecodedMessage('');
     setDecodedImageUrl(null);
-    setDecodeResponse("");
-
-    if (!decodeImageFile) {
-      setDecodeResponse("Please select an image to decode.");
-      setDecodingLoading(false);
-      return;
-    }
 
     const formData = new FormData();
-    formData.append("image", decodeImageFile);
-    if (decodePassword) formData.append("password", decodePassword);
+    formData.append('image', decodeImageFile);
+    formData.append('decodeType', decodeType); // Specify what to extract
+    if (decodePassword) formData.append('password', decodePassword);
 
     try {
-      const res = await fetch("http://localhost:5000/decode", {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch('http://localhost:5000/decode', { method: 'POST', body: formData });
       const data = await res.json();
+      setDecodeResponse(data.message);
       if (res.ok) {
-        setDecodedMessage(data.decoded_content);
-        setDecodeResponse("Decoding successful!");
-      } else {
-        setDecodeResponse(`Error: ${data.message || 'Decoding failed.'}`);
+        if (data.decoded_type === 'text') setDecodedMessage(data.decoded_content);
+        if (data.decoded_type === 'image') setDecodedImageUrl(data.decoded_content_url);
       }
     } catch (err) {
-      console.error("Error during decoding:", err);
-      setDecodeResponse("Error connecting to server for decoding.");
+      setDecodeResponse('Error: Could not connect to the server.');
     } finally {
       setDecodingLoading(false);
     }
   };
 
-  // Your JSX remains largely the same, just remove the simulated progress effects
-  // The rest of your component (return statement with JSX) goes here...
   return (
     <div style={{ maxWidth: "800px", margin: "auto", padding: "1rem", display: "grid", gridTemplateColumns: "1fr", gap: "2rem" }}>
-      {/* Encoding Section */}
-      <div style={{ padding: "1.5rem", border: "1px solid #ddd", borderRadius: "8px", boxShadow: "0 2px 5px rgba(0,0,0,0.05)", backgroundColor: "#fff" }}>
-        <h2 style={{ marginBottom: "1rem", textAlign: "center", color: "#333" }}>Encode Your Message</h2>
+      {/* --- ENCODING SECTION --- */}
+      <Section title="Encode Data">
         <form onSubmit={handleEncode} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {/* We'll simplify the UI to focus on the working parts */}
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Enter your secret message"
-            rows={4}
-            required
-            style={{ width: "100%", padding: "0.5rem", borderRadius: "4px", border: "1px solid #ccc" }}
-          />
-          <label>
-            Upload Cover Image:
-            <input
-              type="file"
-              accept="image/png, image/jpeg, image/jpg"
-              onChange={(e) => setCoverImageFile(e.target.files[0])}
-              required
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "4px", border: "1px solid #ccc" }}
-            />
-          </label>
-          <label>
-            Encryption Password (Optional):
-            <input
-              type="password"
-              value={encodePassword}
-              onChange={(e) => setEncodePassword(e.target.value)}
-              placeholder="Leave blank for no encryption"
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "4px", border: "1px solid #ccc" }}
-            />
-          </label>
-          <button
-            type="submit"
-            style={{
-              marginTop: "1rem", padding: "0.8rem 1.5rem", borderRadius: "5px", border: "none",
-              backgroundColor: "#007bff", color: "white", fontSize: "1rem", cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem"
-            }}
-            disabled={loading}
-          >
-            {loading ? "Processing..." : "Encode"}
-          </button>
-          {loading && (
-            <div>
-              <div className="progress-container">
-                <div className="progress-bar" style={{ width: `${encodeProgress}%` }}></div>
-              </div>
-              <div className="progress-text">{encodeProgress}%</div>
+          <label>1. Select Input Type:</label>
+          <select value={inputType} onChange={(e) => setInputType(e.target.value)} style={{ width: "100%", padding: "0.5rem" }}>
+            <option value="text">Text in Image</option>
+            <option value="image">Image in Image</option>
+          </select>
+
+          {inputType === 'text' ? (
+            <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Enter your secret message..." rows={4} required style={{ width: "100%", padding: "0.5rem" }} />
+          ) : (
+            <label>Upload Secret Image: <input type="file" accept="image/*" onChange={(e) => setSecretImage(e.target.files[0])} required style={{ width: "100%" }} /></label>
+          )}
+
+          <label>Upload Cover Image: <input type="file" accept="image/*" onChange={(e) => setCoverImage(e.target.files[0])} required style={{ width: "100%" }} /></label>
+          <label>Encryption Password (Optional): <input type="password" value={encodePassword} onChange={(e) => setEncodePassword(e.target.value)} style={{ width: "100%", padding: "0.5rem" }} /></label>
+
+          <button type="submit" disabled={loading} style={{ padding: "0.8rem", cursor: "pointer" }}>{loading ? `Processing... ${encodeProgress}%` : "Encode"}</button>
+          {response && <p style={{ backgroundColor: "#f0f0f0", padding: "0.5rem", borderRadius: "4px" }}>{response}</p>}
+          {encodedImage && (
+            <div style={{ textAlign: "center", marginTop: "1rem" }}>
+              <h4>Encoded Image Ready:</h4>
+              <img src={encodedImage} alt="Encoded" style={{ maxWidth: "100%", borderRadius: "8px" }} />
+              <a href={encodedImage} download style={{ display: "block", marginTop: "0.5rem" }}>Download Image</a>
             </div>
           )}
         </form>
+      </Section>
 
-        {response && <p style={{ marginTop: "1rem", padding: "0.5rem", borderRadius: "4px", backgroundColor: "#e9ecef" }}>{response}</p>}
-
-        {encodedImage && (
-          <div style={{ marginTop: "1rem", textAlign: "center" }}>
-            <h3>Encoded Image Ready:</h3>
-            <img src={encodedImage} alt="Encoded" style={{ maxWidth: "100%", border: "1px solid #ccc", borderRadius: "8px" }}/>
-            <br />
-            <a href={encodedImage} download style={{
-              display: "inline-block", marginTop: "1rem", padding: "0.5rem 1rem", borderRadius: "5px",
-              border: "1px solid #007bff", backgroundColor: "transparent", color: "#007bff", textDecoration: "none"
-            }}>
-              Download Encoded Image
-            </a>
-          </div>
-        )}
-      </div>
-
-      {/* Decoding Section */}
-      <div style={{ padding: "1.5rem", border: "1px solid #ddd", borderRadius: "8px", boxShadow: "0 2px 5px rgba(0,0,0,0.05)", backgroundColor: "#fff" }}>
-        <h2 style={{ marginBottom: "1rem", textAlign: "center", color: "#333" }}>Decode Your Message</h2>
+      {/* --- DECODING SECTION --- */}
+      <Section title="Decode Data">
         <form onSubmit={handleDecode} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <label>
-            Upload Encoded Image:
-            <input
-              type="file"
-              accept="image/png, image/jpeg, image/jpg"
-              onChange={(e) => setDecodeImageFile(e.target.files[0])}
-              required
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "4px", border: "1px solid #ccc" }}
-            />
-          </label>
-          <label>
-            Decryption Password (If encrypted):
-            <input
-              type="password"
-              value={decodePassword}
-              onChange={(e) => setDecodePassword(e.target.value)}
-              placeholder="Enter password if encrypted"
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "4px", border: "1px solid #ccc" }}
-            />
-          </label>
-          <button
-            type="submit"
-            style={{
-              marginTop: "1rem", padding: "0.8rem 1.5rem", borderRadius: "5px", border: "none",
-              backgroundColor: "#28a745", color: "white", fontSize: "1rem", cursor: "pointer"
-            }}
-            disabled={decodingLoading}
-          >
-            {decodingLoading ? "Decoding..." : "Decode Image"}
-          </button>
+          <label>1. Select What to Extract:</label>
+          <select value={decodeType} onChange={(e) => setDecodeType(e.target.value)} style={{ width: "100%", padding: "0.5rem" }}>
+            <option value="text">Extract Text</option>
+            <option value="image">Extract Image</option>
+          </select>
+
+          <label>Upload Stego Image: <input type="file" accept="image/*" onChange={(e) => setDecodeImageFile(e.target.files[0])} required style={{ width: "100%" }} /></label>
+          <label>Decryption Password (if used): <input type="password" value={decodePassword} onChange={(e) => setDecodePassword(e.target.value)} style={{ width: "100%", padding: "0.5rem" }} /></label>
+
+          <button type="submit" disabled={decodingLoading} style={{ padding: "0.8rem", cursor: "pointer" }}>{decodingLoading ? "Decoding..." : "Decode"}</button>
+          {decodeResponse && <p style={{ backgroundColor: "#f0f0f0", padding: "0.5rem", borderRadius: "4px" }}>{decodeResponse}</p>}
+          {decodedMessage && (
+            <div style={{ marginTop: "1rem" }}>
+              <h4>Decoded Text:</h4>
+              <p style={{ wordBreak: "break-all" }}>{decodedMessage}</p>
+            </div>
+          )}
+          {decodedImageUrl && (
+            <div style={{ textAlign: "center", marginTop: "1rem" }}>
+              <h4>Decoded Image:</h4>
+              <img src={decodedImageUrl} alt="Decoded" style={{ maxWidth: "100%", borderRadius: "8px" }} />
+              <a href={decodedImageUrl} download style={{ display: "block", marginTop: "0.5rem" }}>Download Decoded Image</a>
+            </div>
+          )}
         </form>
-
-        {decodeResponse && <p style={{ marginTop: "1rem", padding: "0.5rem", borderRadius: "4px", backgroundColor: "#e9ecef" }}>{decodeResponse}</p>}
-
-        {decodedMessage && (
-          <div style={{ marginTop: "1rem", padding: "1rem", border: "1px solid #007bff", borderRadius: "8px", backgroundColor: "#e6f7ff" }}>
-            <h3>Decoded Message:</h3>
-            <p style={{ fontWeight: "bold", wordBreak: "break-all" }}>{decodedMessage}</p>
-          </div>
-        )}
-      </div>
+      </Section>
     </div>
   );
 }
